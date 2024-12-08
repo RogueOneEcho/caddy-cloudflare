@@ -1,0 +1,24 @@
+services:
+
+  caddy:
+    container_name: caddy
+    build: src/
+    ports:
+    - "80:80"
+    - "443:443"
+    - "443:443/udp"
+    volumes:
+    - /srv/caddy/data:/data/caddy
+    - /srv/caddy/config:/config/caddy
+    env_file:
+    - .env
+    networks:
+    - default
+    - public
+    healthcheck:
+      test: curl --fail http://localhost/healthcheck || exit 1
+    restart: unless-stopped
+
+networks:
+  public:
+    external: true
