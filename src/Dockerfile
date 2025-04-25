@@ -1,5 +1,5 @@
-ARG CADDY_VERSION=2.8
-ARG CADDY_CLOUDFLARE_VERSION=89f16b99c18ef49c8bb470a82f895bce01cbaece
+ARG CADDY_VERSION=2.10
+ARG CADDY_CLOUDFLARE_VERSION=v0.2.1
 
 FROM caddy:${CADDY_VERSION}-builder-alpine AS builder
 RUN xcaddy build --with github.com/caddy-dns/cloudflare@${CADDY_CLOUDFLARE_VERSION}
