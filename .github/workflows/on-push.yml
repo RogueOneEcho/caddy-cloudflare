@@ -28,6 +28,11 @@ jobs:
 
     - run: cat /tmp/RELEASE-NOTES.md >> $GITHUB_STEP_SUMMARY
 
+    - uses: actions/upload-artifact@v4
+      with:
+        name: RELEASE-NOTES.md
+        path: /tmp/RELEASE-NOTES.md
+
   build:
     if: needs.release.outputs.version != ''
     strategy:
@@ -72,6 +77,68 @@ jobs:
     # https://github.com/moby/buildkit/issues/1896
     - run: rm -rf /tmp/.buildx-cache
     - run: mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+
+  git-tag:
+    runs-on: ubuntu-24.04
+    if: needs.release.outputs.version != '' && contains(needs.release.outputs.version, '-')
+    needs:
+    - release
+    - build
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+
+    - name: git config
+      run: ${{ secrets.GIT_CONFIG }}
+
+    - name: git tag
+      run: git tag "v${{ needs.release.outputs.version }}"
+
+    - name: git push
+      run: git push origin "v${{ needs.release.outputs.version }}"
+
+
+  github-release:
+    runs-on: ubuntu-24.04
+    if: needs.release.outputs.version != '' && contains(needs.release.outputs.version, '-') == false
+    needs:
+    - release
+    - build
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: RELEASE-NOTES.md
+
+    - name: gh release create
+      if: contains(needs.release.outputs.version, '-') == false
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: >
+        gh release create
+        "v${{ needs.release.outputs.version }}"
+        --title "v${{ needs.release.outputs.version }}"
+        --notes-file RELEASE-NOTES.md
+        --target ${{ github.ref_name }}
+
+    - name: gh release create --prerelease
+      if: contains(needs.release.outputs.version, '-')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: >
+        gh release create
+        "v${{ needs.release.outputs.version }}"
+        --title "v${{ needs.release.outputs.version }}"
+        --notes-file RELEASE-NOTES.md
+        --target ${{ github.ref_name }}
+        --prerelease
+
 
   push:
     runs-on: ubuntu-24.04
