@@ -26,12 +26,12 @@ jobs:
 
     - run: echo "# ${{ steps.release.outputs.version}}" >> $GITHUB_STEP_SUMMARY
 
-    - run: cat /tmp/RELEASE-NOTES.md >> $GITHUB_STEP_SUMMARY
+    - run: cat /tmp/release-notes.md >> $GITHUB_STEP_SUMMARY
 
     - uses: actions/upload-artifact@v4
       with:
-        name: RELEASE-NOTES.md
-        path: /tmp/RELEASE-NOTES.md
+        name: release-notes.md
+        path: /tmp/release-notes.md
 
   build:
     if: needs.release.outputs.version != ''
@@ -114,7 +114,7 @@ jobs:
 
     - uses: actions/download-artifact@v4
       with:
-        name: RELEASE-NOTES.md
+        name: release-notes.md
 
     - name: gh release create
       if: contains(needs.release.outputs.version, '-') == false
@@ -124,7 +124,7 @@ jobs:
         gh release create
         "v${{ needs.release.outputs.version }}"
         --title "v${{ needs.release.outputs.version }}"
-        --notes-file RELEASE-NOTES.md
+        --notes-file release-notes.md
         --target ${{ github.ref_name }}
 
     - name: gh release create --prerelease
@@ -135,7 +135,7 @@ jobs:
         gh release create
         "v${{ needs.release.outputs.version }}"
         --title "v${{ needs.release.outputs.version }}"
-        --notes-file RELEASE-NOTES.md
+        --notes-file release-notes.md
         --target ${{ github.ref_name }}
         --prerelease
 
@@ -158,14 +158,14 @@ jobs:
 
     - run: docker manifest push ${{ env.IMAGE }}:${{ needs.release.outputs.version }}
 
-    - if: github.ref_name == 'alpha'
+    - if: contains(needs.release.outputs.version, '-')
       run: >
-        docker manifest create ${{ env.IMAGE }}:${{ github.ref_name }}
+        docker manifest create ${{ env.IMAGE }}:alpha
         ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-amd
         ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-arm
 
-    - if: github.ref_name == 'alpha'
-      run: docker manifest push ${{ env.IMAGE }}:${{ github.ref_name }}
+    - if: contains(needs.release.outputs.version, '-')
+      run: docker manifest push ${{ env.IMAGE }}:alpha
 
     - if: contains(needs.release.outputs.version, '-') == false
       run: >
