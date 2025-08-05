@@ -100,12 +100,12 @@ jobs:
     - if: github.ref_name == 'alpha'
       run: docker manifest push ${{ env.IMAGE }}:${{ github.ref_name }}
 
-    - if: ! contains(needs.release.outputs.version, '-')
+    - if: contains(needs.release.outputs.version, '-') == false
       run: >
         docker manifest create ${{ env.IMAGE }}:latest
         ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-amd
         ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-arm
 
-    - if: ! contains(needs.release.outputs.version, '-')
+    - if: contains(needs.release.outputs.version, '-') == false
       run: docker manifest push ${{ env.IMAGE }}:latest
 
