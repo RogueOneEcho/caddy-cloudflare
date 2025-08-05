@@ -1,6 +1,8 @@
 name: On Push
 on:
   push:
+env:
+  IMAGE: ghcr.io/rogueoneecho/caddy-cloudflare
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,9 +28,16 @@ jobs:
 
     - run: cat /tmp/RELEASE-NOTES.md >> $GITHUB_STEP_SUMMARY
 
-  docker-build:
-    runs-on: ubuntu-latest
-    if: ${{ needs.release.outputs.version != ''}}
+  build:
+    if: needs.release.outputs.version != ''
+    strategy:
+      matrix:
+        include:
+        - runner: ubuntu-24.04
+          arch: amd
+        - runner: ubuntu-24.04-arm
+          arch: arm
+    runs-on: ${{ matrix.runner }}
     needs:
     - release
     steps:
@@ -38,9 +47,9 @@ jobs:
     - uses: actions/cache@v4
       with:
         path: /tmp/.buildx-cache
-        key: buildx-${{ github.sha }}
+        key: buildx-${{ matrix.arch }}-${{ github.sha }}
         restore-keys: |
-          buildx-
+          buildx-${{ matrix.arch }}-
 
     - run: echo $GH_TOKEN | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       env:
@@ -50,10 +59,12 @@ jobs:
 
     - run: >
         docker buildx build src
+        --platform "linux/${{ matrix.arch }}64"
         --build-arg VERSION=${{ needs.release.outputs.version }}
-        --tag ghcr.io/rogueoneecho/caddy-cloudflare:${{ needs.release.outputs.version }}
+        --tag ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-${{ matrix.arch }}
         --cache-from=type=local,src=/tmp/.buildx-cache
         --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max
+        --provenance false
         --push
 
     # Temp fix
@@ -62,27 +73,39 @@ jobs:
     - run: rm -rf /tmp/.buildx-cache
     - run: mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-  docker-release:
-    runs-on: ubuntu-latest
+  push:
+    runs-on: ubuntu-24.04
     needs:
     - release
-    - docker-build
+    - build
     steps:
 
     - run: echo $GH_TOKEN | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - run: docker pull ghcr.io/rogueoneecho/caddy-cloudflare:${{ needs.release.outputs.version }}
+    - run: >
+        docker manifest create ${{ env.IMAGE }}:${{ needs.release.outputs.version }}
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-amd
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-arm
 
-    - run: docker tag ghcr.io/rogueoneecho/caddy-cloudflare:${{ needs.release.outputs.version }} ghcr.io/rogueoneecho/caddy-cloudflare:${{ github.ref_name }}
-      if: ${{ github.ref_name == 'alpha' }}
+    - run: docker manifest push ${{ env.IMAGE }}:${{ needs.release.outputs.version }}
 
-    - run: docker push ghcr.io/rogueoneecho/caddy-cloudflare:${{ github.ref_name }}
-      if: ${{ github.ref_name == 'alpha' }}
+    - if: github.ref_name == 'alpha'
+      run: >
+        docker manifest create ${{ env.IMAGE }}:${{ github.ref_name }}
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-amd
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-arm
 
-    - run: docker tag ghcr.io/rogueoneecho/caddy-cloudflare:${{ needs.release.outputs.version }} ghcr.io/rogueoneecho/caddy-cloudflare:latest
-      if: ${{ ! contains(needs.release.outputs.version, '-') }}
+    - if: github.ref_name == 'alpha'
+      run: docker manifest push ${{ env.IMAGE }}:${{ github.ref_name }}
 
-    - run: docker push ghcr.io/rogueoneecho/caddy-cloudflare:latest
-      if: ${{ ! contains(needs.release.outputs.version, '-') }}
+    - if: ! contains(needs.release.outputs.version, '-')
+      run: >
+        docker manifest create ${{ env.IMAGE }}:latest
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-amd
+        ${{ env.IMAGE }}:${{ needs.release.outputs.version }}-arm
+
+    - if: ! contains(needs.release.outputs.version, '-')
+      run: docker manifest push ${{ env.IMAGE }}:latest
+
