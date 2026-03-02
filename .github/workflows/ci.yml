@@ -1,5 +1,10 @@
 name: CI
-on: workflow_call
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
 jobs:
   ci:
     uses: RogueOneEcho/ci/.github/workflows/docker.yml@v1
@@ -7,4 +12,5 @@ jobs:
       docker-image: rogueoneecho/caddy-cloudflare
       build-context: src
       grype-args: ''
+      ref: ${{ inputs.ref }}
     secrets: inherit
