@@ -6,4 +6,5 @@ jobs:
     with:
       docker-image: rogueoneecho/caddy-cloudflare
       build-context: src
+      grype-args: ''
     secrets: inherit
