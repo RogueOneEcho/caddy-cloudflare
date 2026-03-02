@@ -2,7 +2,7 @@ services:
 
   caddy:
     container_name: caddy
-    build: src/
+    image: ghcr.io/rogueoneecho/caddy-cloudflare
     ports:
     - "80:80"
     - "443:443"
