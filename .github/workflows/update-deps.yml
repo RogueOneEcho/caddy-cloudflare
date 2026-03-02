@@ -74,9 +74,7 @@ jobs:
 
     - name: Configure git
       if: steps.message.outcome == 'success'
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      run: ${{ secrets.GIT_CONFIG }}
 
     - name: Stage changes
       if: steps.message.outcome == 'success'
