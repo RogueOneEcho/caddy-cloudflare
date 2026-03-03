@@ -10,14 +10,32 @@ permissions:
   packages: write
   id-token: write
 jobs:
-  update:
+  # Ensure this only runs on main
+  guard:
+    runs-on: ubuntu-24.04
+    if: github.ref_name == 'main'
+    steps:
+    - run: true
+
+  # Compare pinned versions in Dockerfile against latest releases
+  check:
+    needs: guard
     runs-on: ubuntu-24.04
     outputs:
-      updated: ${{ steps.commit.outcome == 'success' }}
+      needs_update: ${{ steps.compare.outputs.needs_update }}
+      message: ${{ steps.message.outputs.text }}
+      latest-caddy: ${{ steps.latest-caddy.outputs.version }}
+      latest-cloudflare: ${{ steps.latest-cloudflare.outputs.version }}
     steps:
     - uses: actions/checkout@v4
 
-    - name: Get latest Caddy version
+    - name: Current Caddy version
+      id: current-caddy
+      run: |
+        version=$(sed -n 's/^ARG CADDY_VERSION=//p' src/Dockerfile)
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Latest Caddy version
       id: latest-caddy
       env:
         GH_TOKEN: ${{ github.token }}
@@ -25,7 +43,13 @@ jobs:
         version=$(gh release view --repo caddyserver/caddy --json tagName --jq .tagName | sed 's/^v//')
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
-    - name: Get latest Cloudflare module version
+    - name: Current Cloudflare version
+      id: current-cloudflare
+      run: |
+        version=$(sed -n 's/^ARG CADDY_CLOUDFLARE_VERSION=//p' src/Dockerfile)
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Latest Cloudflare version
       id: latest-cloudflare
       env:
         GH_TOKEN: ${{ github.token }}
@@ -33,37 +57,23 @@ jobs:
         version=$(gh api repos/caddy-dns/cloudflare/tags --jq '[.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0]')
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
-    - name: Get current Caddy version
-      id: current-caddy
+    - name: Compare
+      id: compare
       run: |
-        version=$(sed -n 's/^ARG CADDY_VERSION=//p' src/Dockerfile)
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-
-    - name: Get current Cloudflare module version
-      id: current-cloudflare
-      run: |
-        version=$(sed -n 's/^ARG CADDY_CLOUDFLARE_VERSION=//p' src/Dockerfile)
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-
-    - name: Update Caddy version
-      id: update-caddy
-      if: steps.latest-caddy.outputs.version != steps.current-caddy.outputs.version
-      run: sed -i "s/^ARG CADDY_VERSION=.*/ARG CADDY_VERSION=${{ steps.latest-caddy.outputs.version }}/" src/Dockerfile
-
-    - name: Update Cloudflare module version
-      id: update-cloudflare
-      if: steps.latest-cloudflare.outputs.version != steps.current-cloudflare.outputs.version
-      run: sed -i "s/^ARG CADDY_CLOUDFLARE_VERSION=.*/ARG CADDY_CLOUDFLARE_VERSION=${{ steps.latest-cloudflare.outputs.version }}/" src/Dockerfile
+        if [[ "${{ steps.latest-caddy.outputs.version }}" != "${{ steps.current-caddy.outputs.version }}" ]] ||
+           [[ "${{ steps.latest-cloudflare.outputs.version }}" != "${{ steps.current-cloudflare.outputs.version }}" ]]; then
+          echo "needs_update=true" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build commit message
       id: message
-      if: steps.update-caddy.outcome == 'success' || steps.update-cloudflare.outcome == 'success'
+      if: steps.compare.outputs.needs_update == 'true'
       run: |
         changes=""
-        if [[ "${{ steps.update-caddy.outcome }}" == "success" ]]; then
+        if [[ "${{ steps.latest-caddy.outputs.version }}" != "${{ steps.current-caddy.outputs.version }}" ]]; then
           changes="caddy to \`${{ steps.latest-caddy.outputs.version }}\`"
         fi
-        if [[ "${{ steps.update-cloudflare.outcome }}" == "success" ]]; then
+        if [[ "${{ steps.latest-cloudflare.outputs.version }}" != "${{ steps.current-cloudflare.outputs.version }}" ]]; then
           if [[ -n "$changes" ]]; then
             changes="$changes, cloudflare to \`${{ steps.latest-cloudflare.outputs.version }}\`"
           else
@@ -72,26 +82,55 @@ jobs:
         fi
         echo "text=feat: update $changes" >> "$GITHUB_OUTPUT"
 
-    - name: Configure git
-      if: steps.message.outcome == 'success'
+    - name: Summary
+      run: |
+        cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+        ```yaml
+        caddy:
+          latest: ${{ steps.latest-caddy.outputs.version }}
+          current: ${{ steps.current-caddy.outputs.version }}
+        cloudflare:
+          latest: ${{ steps.latest-cloudflare.outputs.version }}
+          current: ${{ steps.current-cloudflare.outputs.version }}
+        needs_update: ${{ steps.compare.outputs.needs_update }}
+        ```
+        EOF
+
+  # Update the pinned versions, commit, and push
+  update:
+    needs: check
+    if: needs.check.outputs.needs_update == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Replace
+      run: |
+        sed -i "s/^ARG CADDY_VERSION=.*/ARG CADDY_VERSION=${{ needs.check.outputs.latest-caddy }}/" src/Dockerfile
+        sed -i "s/^ARG CADDY_CLOUDFLARE_VERSION=.*/ARG CADDY_CLOUDFLARE_VERSION=${{ needs.check.outputs.latest-cloudflare }}/" src/Dockerfile
+
+    - name: Configure
       run: ${{ secrets.GIT_CONFIG }}
 
-    - name: Stage changes
-      if: steps.message.outcome == 'success'
+    - name: List
+      run: git config --list
+
+    - name: Stage
       run: git add src/Dockerfile
 
+    - name: Diff
+      run: git diff --staged
+
     - name: Commit
-      id: commit
-      if: steps.message.outcome == 'success'
-      run: git commit -m '${{ steps.message.outputs.text }}'
+      run: |
+        git commit -m '${{ needs.check.outputs.message }}'
 
     - name: Push
-      if: steps.commit.outcome == 'success'
       run: git push
 
+  # Build and publish the updated image
   ci:
     needs: update
-    if: needs.update.outputs.updated == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       ref: main
