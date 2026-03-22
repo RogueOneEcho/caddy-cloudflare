@@ -27,7 +27,7 @@ jobs:
       latest-caddy: ${{ steps.latest-caddy.outputs.version }}
       latest-cloudflare: ${{ steps.latest-cloudflare.outputs.version }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Current Caddy version
       id: current-caddy
@@ -102,7 +102,7 @@ jobs:
     if: needs.check.outputs.needs_update == 'true'
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Replace
       run: |
