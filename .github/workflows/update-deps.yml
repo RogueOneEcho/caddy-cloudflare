@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       needs_update: ${{ steps.compare.outputs.needs_update }}
+      caddy_update: ${{ steps.compare.outputs.caddy_update }}
+      cloudflare_update: ${{ steps.compare.outputs.cloudflare_update }}
       message: ${{ steps.message.outputs.text }}
       latest-caddy: ${{ steps.latest-caddy.outputs.version }}
       latest-cloudflare: ${{ steps.latest-cloudflare.outputs.version }}
@@ -37,10 +39,8 @@ jobs:
 
     - name: Latest Caddy version
       id: latest-caddy
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
-        version=$(gh release view --repo caddyserver/caddy --json tagName --jq .tagName | sed 's/^v//')
+        version=$(curl -s "https://hub.docker.com/v2/repositories/library/caddy/tags?page_size=100&ordering=last_updated" | jq -r '[.results[].name | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(split(".") | map(tonumber)) | last')
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
     - name: Current Cloudflare version
@@ -49,19 +49,34 @@ jobs:
         version=$(sed -n 's/^ARG CADDY_CLOUDFLARE_VERSION=//p' src/Dockerfile)
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
+    # A Go module built into caddy via xcaddy, not a container image, so
+    # GitHub tags are the source of truth here rather than Docker Hub.
     - name: Latest Cloudflare version
       id: latest-cloudflare
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        version=$(gh api repos/caddy-dns/cloudflare/tags --jq '[.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0]')
+        version=$(gh api repos/caddy-dns/cloudflare/tags --jq '[.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last')
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
     - name: Compare
       id: compare
       run: |
-        if [[ "${{ steps.latest-caddy.outputs.version }}" != "${{ steps.current-caddy.outputs.version }}" ]] ||
-           [[ "${{ steps.latest-cloudflare.outputs.version }}" != "${{ steps.current-cloudflare.outputs.version }}" ]]; then
+        cur_caddy='${{ steps.current-caddy.outputs.version }}'
+        lat_caddy='${{ steps.latest-caddy.outputs.version }}'
+        cur_cf='${{ steps.current-cloudflare.outputs.version }}'
+        lat_cf='${{ steps.latest-cloudflare.outputs.version }}'
+        caddy_update=false
+        if [[ "$lat_caddy" != "$cur_caddy" && "$(printf '%s\n%s\n' "$cur_caddy" "$lat_caddy" | sort -V | tail -n1)" == "$lat_caddy" ]]; then
+          caddy_update=true
+        fi
+        cloudflare_update=false
+        if [[ "$lat_cf" != "$cur_cf" && "$(printf '%s\n%s\n' "$cur_cf" "$lat_cf" | sort -V | tail -n1)" == "$lat_cf" ]]; then
+          cloudflare_update=true
+        fi
+        echo "caddy_update=$caddy_update" >> "$GITHUB_OUTPUT"
+        echo "cloudflare_update=$cloudflare_update" >> "$GITHUB_OUTPUT"
+        if [[ "$caddy_update" == true || "$cloudflare_update" == true ]]; then
           echo "needs_update=true" >> "$GITHUB_OUTPUT"
         fi
 
@@ -70,10 +85,10 @@ jobs:
       if: steps.compare.outputs.needs_update == 'true'
       run: |
         changes=""
-        if [[ "${{ steps.latest-caddy.outputs.version }}" != "${{ steps.current-caddy.outputs.version }}" ]]; then
+        if [[ "${{ steps.compare.outputs.caddy_update }}" == true ]]; then
           changes="caddy to \`${{ steps.latest-caddy.outputs.version }}\`"
         fi
-        if [[ "${{ steps.latest-cloudflare.outputs.version }}" != "${{ steps.current-cloudflare.outputs.version }}" ]]; then
+        if [[ "${{ steps.compare.outputs.cloudflare_update }}" == true ]]; then
           if [[ -n "$changes" ]]; then
             changes="$changes, cloudflare to \`${{ steps.latest-cloudflare.outputs.version }}\`"
           else
@@ -84,7 +99,7 @@ jobs:
 
     - name: Summary
       run: |
-        cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+        cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
         ```yaml
         caddy:
           latest: ${{ steps.latest-caddy.outputs.version }}
@@ -106,8 +121,12 @@ jobs:
 
     - name: Replace
       run: |
-        sed -i "s/^ARG CADDY_VERSION=.*/ARG CADDY_VERSION=${{ needs.check.outputs.latest-caddy }}/" src/Dockerfile
-        sed -i "s/^ARG CADDY_CLOUDFLARE_VERSION=.*/ARG CADDY_CLOUDFLARE_VERSION=${{ needs.check.outputs.latest-cloudflare }}/" src/Dockerfile
+        if [[ "${{ needs.check.outputs.caddy_update }}" == true ]]; then
+          sed -i "s/^ARG CADDY_VERSION=.*/ARG CADDY_VERSION=${{ needs.check.outputs.latest-caddy }}/" src/Dockerfile
+        fi
+        if [[ "${{ needs.check.outputs.cloudflare_update }}" == true ]]; then
+          sed -i "s/^ARG CADDY_CLOUDFLARE_VERSION=.*/ARG CADDY_CLOUDFLARE_VERSION=${{ needs.check.outputs.latest-cloudflare }}/" src/Dockerfile
+        fi
 
     - name: Configure
       run: ${{ secrets.GIT_CONFIG }}
