@@ -30,6 +30,23 @@ docker pull ghcr.io/rogueoneecho/caddy-cloudflare
 
 See [docker-compose.yml](docker-compose.yml) for an example.
 
+### Secrets
+
+The default `Caddyfile` reads the Cloudflare API token from `/run/secrets/cloudflare_api_token`, e.g. a compose secret:
+
+```yaml
+services:
+  caddy:
+    secrets:
+    - cloudflare_api_token
+
+secrets:
+  cloudflare_api_token:
+    environment: CLOUDFLARE_API_TOKEN
+```
+
+A custom `Caddyfile` can do the same with `{file./run/secrets/cloudflare_api_token}`.
+
 ## Releases and Changes
 
 Releases and a full changelog are available via [GitHub Releases](https://github.com/RogueOneEcho/caddy-cloudflare/releases).

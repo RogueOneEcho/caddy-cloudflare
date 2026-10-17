@@ -10,8 +10,10 @@ services:
     volumes:
     - /srv/caddy/data:/data/caddy
     - /srv/caddy/config:/config/caddy
-    env_file:
-    - .env
+    environment:
+      TLS_EMAIL: ${TLS_EMAIL}
+    secrets:
+    - cloudflare_api_token
     networks:
     - default
     - public
@@ -22,3 +24,7 @@ services:
 networks:
   public:
     external: true
+
+secrets:
+  cloudflare_api_token:
+    environment: CLOUDFLARE_API_TOKEN

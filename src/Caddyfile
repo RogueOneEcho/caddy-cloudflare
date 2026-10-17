@@ -1,6 +1,6 @@
 {
   admin off
-  acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  acme_dns cloudflare {file./run/secrets/cloudflare_api_token}
   email {env.TLS_EMAIL}
 }
 
