@@ -5,6 +5,6 @@ FROM caddy:${CADDY_VERSION}-builder-alpine AS builder
 RUN xcaddy build --with github.com/caddy-dns/cloudflare@${CADDY_CLOUDFLARE_VERSION}
 
 FROM caddy:${CADDY_VERSION}-alpine
-RUN apk add --no-cache curl
+RUN apk upgrade --no-cache && apk add --no-cache curl
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 COPY Caddyfile /etc/caddy/Caddyfile
